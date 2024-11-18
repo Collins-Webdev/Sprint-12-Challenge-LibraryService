@@ -21,17 +21,19 @@ import java.util.stream.Collectors;
 @Service
 public class LibraryService {
 
-    //TODO: Implement behavior described by the unit tests in tst.com.bloomtech.library.services.LibraryService
-
     @Autowired
     private LibraryRepository libraryRepository;
 
+    @Autowired
+    private CheckableService checkableService;
+
     public List<Library> getLibraries() {
-        return new ArrayList<>();
+        return libraryRepository.findAll();
     }
 
     public Library getLibraryByName(String name) {
-        return null;
+        Optional<Library> libraryOptional = libraryRepository.findByName(name);
+        return libraryOptional.orElseThrow(() -> new LibraryNotFoundException("Library not found with name: " + name));
     }
 
     public void save(Library library) {
@@ -43,17 +45,52 @@ public class LibraryService {
     }
 
     public CheckableAmount getCheckableAmount(String libraryName, String checkableIsbn) {
-        return new CheckableAmount(null, 0);
+        Library library = getLibraryByName(libraryName);
+        Checkable checkable = checkableService.getByIsbn(checkableIsbn);
+
+        Optional<CheckableAmount> existingAmount = library.getCheckables().stream()
+                .filter(ca -> ca.getCheckable().getIsbn().equals(checkableIsbn))
+                .findFirst();
+
+        return existingAmount.orElse(new CheckableAmount(checkable, 0));
     }
 
     public List<LibraryAvailableCheckouts> getLibrariesWithAvailableCheckout(String isbn) {
+        Checkable checkable = checkableService.getByIsbn(isbn);
+        List<Library> allLibraries = libraryRepository.findAll();
         List<LibraryAvailableCheckouts> available = new ArrayList<>();
+
+        for (Library library : allLibraries) {
+            Optional<CheckableAmount> checkableAmount = library.getCheckables().stream()
+                    .filter(ca -> ca.getCheckable().getIsbn().equals(isbn))
+                    .findFirst();
+
+            if (checkableAmount.isPresent()) {
+                available.add(new LibraryAvailableCheckouts(
+                        checkableAmount.get().getAmount(),
+                        library.getName()
+                ));
+            }
+        }
 
         return available;
     }
 
     public List<OverdueCheckout> getOverdueCheckouts(String libraryName) {
+        Library library = getLibraryByName(libraryName);
         List<OverdueCheckout> overdueCheckouts = new ArrayList<>();
+        LocalDateTime now = LocalDateTime.now();
+
+        for (LibraryCard card : library.getLibraryCards()) {
+            for (Checkout checkout : card.getCheckouts()) {
+                if (checkout.getDueDate().isBefore(now)) {
+                    overdueCheckouts.add(new OverdueCheckout(
+                            card.getPatron(),
+                            checkout
+                    ));
+                }
+            }
+        }
 
         return overdueCheckouts;
     }
